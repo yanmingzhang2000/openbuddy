@@ -1,0 +1,42 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.db
+
+# Node
+node_modules/
+.next/
+out/
+npm-debug.log*
+# TypeScript 增量编译缓存(next build 生成,不应提交;
+# 注意 next-env.d.ts 是 Next.js 要求提交的,不要加进来)
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+
+# Docker
+sandbox-workspaces/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Alembic
+control-plane/alembic/versions/__pycache__/

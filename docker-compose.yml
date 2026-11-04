@@ -1,0 +1,106 @@
+name: agentforge
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-agentforge}
+      POSTGRES_USER: ${POSTGRES_USER:-agentforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-production}
+    ports:
+      - "5432:5432"
+    volumes:
+      - agentforge_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agentforge}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Valkey:Redis 协议兼容、BSD-3-Clause 许可(Linux Foundation 维护),
+  # 规避 Redis 7.x 的 RSALv2/SSPL 许可证问题(见 docs/ARCHITECTURE.md 第 5 节)。
+  valkey:
+    image: valkey/valkey:7.2-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build:
+      context: ./control-plane
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://agentforge:change-me-in-production@postgres:5432/agentforge}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+
+  control-plane:
+    build:
+      context: ./control-plane
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://agentforge:change-me-in-production@postgres:5432/agentforge}
+      APP_DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentforge_app:change-me-in-production@postgres:5432/agentforge}
+      REDIS_URL: ${REDIS_URL:-redis://valkey:6379/0}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock # 控制面需要调用 Docker API 创建沙箱容器
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Linux 下访问宿主机 Ollama 服务
+
+  worker:
+    build:
+      context: ./control-plane
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://agentforge:change-me-in-production@postgres:5432/agentforge}
+      APP_DATABASE_URL: ${APP_DATABASE_URL:-postgresql+asyncpg://agentforge_app:change-me-in-production@postgres:5432/agentforge}
+      REDIS_URL: ${REDIS_URL:-redis://valkey:6379/0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      NEXT_PUBLIC_WS_BASE_URL: ws://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - control-plane
+
+volumes:
+  agentforge_postgres_data:
