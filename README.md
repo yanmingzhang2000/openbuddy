@@ -79,7 +79,7 @@ LLM_BASE_URL=https://api.openai.com/v1
 LLM_API_KEY=sk-xxx
 ```
 
-Anthropic / DeepSeek 的配置示例见 `.env.example` 中的注释。切换厂商不需要改任何代码,模型层统一通过 `openhands.sdk.LLM`(底层基于 LiteLLM)接入,核心逻辑不依赖任何厂商 SDK。
+Anthropic / DeepSeek / 智谱开放平台 的配置示例见 `.env.example` 中的注释。切换厂商不需要改任何代码,模型层统一通过 `openhands.sdk.LLM`(底层基于 LiteLLM)接入,核心逻辑不依赖任何厂商 SDK。
 
 ### 跑第一个任务
 
@@ -161,7 +161,7 @@ npm run dev
 - ✅ 凭证不进沙箱:环境变量黑名单检测 + 策略网关代理执行模式,有单元测试验证
 - ✅ 预算护栏(步数/超时/token/成本)+ 租户并发配额,有单元测试验证
 - ✅ LangGraph 实现的委派/并行 fan-out/人工审核中断,状态可持久化到 Postgres
-- ✅ 模型层可插拔(Ollama/OpenAI 兼容/Anthropic/DeepSeek),不依赖厂商 SDK
+- ✅ 模型层可插拔(Ollama/OpenAI 兼容/Anthropic/DeepSeek/智谱开放平台),不依赖厂商 SDK
 
 ### 简化实现,生产化前需要加固
 

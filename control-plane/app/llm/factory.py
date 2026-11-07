@@ -10,6 +10,7 @@
 - openai      -> 任意 OpenAI 兼容端点(官方 / vLLM / LM Studio 等)
 - anthropic   -> Anthropic 官方 API
 - deepseek    -> DeepSeek 官方 API
+- zhipu       -> 智谱开放平台(通过 OpenAI 兼容接口)
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ except ImportError:  # pragma: no cover
     _HAS_OPENHANDS_SDK = False
 
 
-_SUPPORTED_PROVIDERS = {"ollama", "openai", "anthropic", "deepseek"}
+_SUPPORTED_PROVIDERS = {"ollama", "openai", "anthropic", "deepseek", "zhipu"}
 
 
 def build_llm(settings: Settings | None = None):
@@ -33,6 +34,10 @@ def build_llm(settings: Settings | None = None):
 
     零成本路径验证:当 LLM_PROVIDER=ollama 时,api_key 允许是任意占位字符串
     (Ollama 不校验),base_url 指向本地/局域网 Ollama 服务,不产生任何费用。
+    
+    智谱开放平台特殊处理:
+    1. 使用 OpenAI 兼容接口,需要 base_url
+    2. 模型名称转换:如果用户提供简洁名称(如 "glm-5.3-flash")，自动添加 "openai/" 前缀
     """
     settings = settings or get_settings()
 
@@ -49,9 +54,19 @@ def build_llm(settings: Settings | None = None):
 
     # LiteLLM 约定:model 字符串本身带 provider 前缀(如 "ollama/qwen2.5-coder:7b"),
     # base_url/api_key 按 provider 语义传递。openhands.sdk.LLM 直接转发给 LiteLLM。
+    
+    # 处理智谱开放平台的模型名称转换
+    model_name = settings.llm_model
+    if settings.llm_provider == "zhipu" and not model_name.startswith("openai/"):
+        # 自动为智谱平台添加 openai/ 前缀，因为智谱使用 OpenAI 兼容接口
+        model_name = f"openai/{model_name}"
+    
+    # 确定是否需要 base_url
+    needs_base_url = settings.llm_provider in ("ollama", "openai", "zhipu")
+    
     return LLM(
-        model=settings.llm_model,
-        base_url=settings.llm_base_url if settings.llm_provider in ("ollama", "openai") else None,
+        model=model_name,
+        base_url=settings.llm_base_url if needs_base_url else None,
         api_key=settings.llm_api_key,
     )
 
