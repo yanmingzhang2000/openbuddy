@@ -1,7 +1,14 @@
-# AgentForge
+# FrameMind
 
-基于 [OpenHands](https://github.com/OpenHands/OpenHands)(MIT 协议)构建的自有 AI Agent 平台。软件授权费 0,支持纯本地 Ollama 零成本运行,也可插拔切换到 OpenAI 兼容端点 / Anthropic / DeepSeek。
+**Clarity before action.**
 
+FrameMind 是一个 intent-first AI Agent 工作台。它不会急着执行模糊指令，而是帮助用户先明确目标、背景、约束和预期结果，再推进任务执行。
+
+基于 [OpenHands](https://github.com/OpenHands/OpenHands)(MIT 协议)构建。软件授权费 0,支持纯本地 Ollama 零成本运行,也可插拔切换到 OpenAI 兼容端点 / Anthropic / DeepSeek。
+
+> **品牌说明**: FrameMind 是对外产品品牌。agentforge 是现阶段为兼容已有部署而保留的内部技术标识。
+
+> Intent-First 产品设计见 [`docs/INTENT_FIRST_PRODUCT.md`](docs/INTENT_FIRST_PRODUCT.md)，技术设计见 [`docs/INTENT_FIRST_TECHNICAL.md`](docs/INTENT_FIRST_TECHNICAL.md)。
 > 架构细节、组件选型理由、复用与自研边界清单见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。
 > 当前实现的能力边界(什么做了、什么没做)见本文末尾的[「当前实现边界」](#当前实现边界)章节,请务必在生产使用前阅读。
 

@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "AgentForge",
-  description: "基于 OpenHands 的自有 AI Agent 平台",
+  title: "FrameMind",
+  description: "An intent-first AI agent workspace that clarifies goals before taking action.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

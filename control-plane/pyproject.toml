@@ -1,7 +1,7 @@
 [project]
 name = "agentforge-control-plane"
 version = "0.1.0"
-description = "AgentForge 控制平面:基于 OpenHands SDK 的多租户 AI Agent 任务编排与执行服务"
+description = "FrameMind 控制平面:基于 OpenHands SDK 的 Intent-First AI Agent 任务编排与执行服务"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12"

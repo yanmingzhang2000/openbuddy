@@ -16,8 +16,8 @@ settings = get_settings()
 configure_logging(settings.log_level)
 
 app = FastAPI(
-    title="AgentForge Control Plane",
-    description="基于 OpenHands 开源底座构建的多租户 AI Agent 平台控制面",
+    title="FrameMind Control Plane",
+    description="基于 OpenHands 开源底座构建的 Intent-First AI Agent 平台控制面",
     version="0.1.0",
 )
 
@@ -38,7 +38,7 @@ app.include_router(ws_router)
 @app.get("/")
 async def root() -> dict:
     return {
-        "name": "AgentForge",
-        "description": "基于 OpenHands (MIT) 的自有 AI Agent 平台",
+        "name": "FrameMind",
+        "description": "Intent-First AI Agent 工作台 (基于 OpenHands MIT 协议构建)",
         "docs": "/docs",
     }

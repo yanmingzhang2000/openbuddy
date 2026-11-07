@@ -1,16 +1,19 @@
-# 架构方案:基于 OpenHands 的自有 AI Agent 平台
+# 架构方案:FrameMind - 基于 OpenHands 的 Intent-First AI Agent 平台
 
 > 状态:v0.1(骨架实现阶段)。本文档是工程事实的来源,代码与文档不一致时以本文档描述的「复用/自研边界」为准进行修正。
+>
+> Intent-First 产品设计:[INTENT_FIRST_PRODUCT.md](INTENT_FIRST_PRODUCT.md)  ·  技术设计:[INTENT_FIRST_TECHNICAL.md](INTENT_FIRST_TECHNICAL.md)
 
 ## 0. 结论先行
 
 | 问题 | 结论 |
 |---|---|
+| 品牌 | **FrameMind** 是对外产品品牌 |
+| 内部代号 | `agentforge`(避免与 OpenHands 商标混淆,现阶段为兼容已有部署而保留) |
 | 底座 | [OpenHands](https://github.com/OpenHands/OpenHands)(MIT),具体消费 `openhands-sdk` / `openhands-tools` / `openhands-workspace` / `openhands-agent-server` 四个 PyPI 包 |
 | 软件授权费 | 0(MIT 底座 + 自研代码均为 MIT/Apache-2.0 依赖) |
 | 零成本运行路径 | 本地 Ollama,通过 LiteLLM 抽象以 OpenAI 兼容协议接入,无需任何付费 API Key |
 | 本项目新增代码许可证 | Apache-2.0 |
-| 命名 | 内部代号 `agentforge`(避免与 OpenHands 商标混淆,UI 中会明确标注"基于 OpenHands 构建") |
 
 ---
 
@@ -80,7 +83,7 @@
 | 能力 | 为什么必须自研 | 自研方式 |
 |---|---|---|
 | **多 Agent 委派/并行/人工审核** | SDK 的 Agent/Conversation 面向单任务循环,官方未提供编排图;`OpenHands/automation` 仅做调度分发,不做 Agent 间协作状态机 | LangGraph(MIT)StateGraph,节点=子任务,边=委派/合并规则,`interrupt()` 实现人工审核暂停点 |
-| **多租户数据隔离 + 配额 + 审计** | Agent Server 只做"会话级"隔离(API Key 区分连接),没有租户维度的数据库行级隔离、使用配额、审计留痕;这些是闭源商用 SaaS 的硬需求 | FastAPI 控制面 + Postgres,每张业务表带 `tenant_id`,启用 Row-Level Security,所有连接 `SET app.tenant_id`,双重保险 |
+| **多租户数据隔离 + 配额 + 审计** | Agent Server 只做"会话级"隔离(API Key 区分连接),没有租户维度的数据库行级隔离、使用配额、审计留痕;这些是闭源商用 SaaS 的硬需求 | FastAPI 控制面 + Postgres,每张业务表带 `tenant_id`,启用 Row-Level Security,所有业务连接通过 `tenant_scoped_session()` 设置 `app.current_tenant_id`,双重保险 |
 | **任务队列与调度** | 不直接 fork `OpenHands/automation`,因为它强耦合 OpenHands Cloud 的 SaaS 概念(webhook/cron 为主),与我们"用户在 Web 工作台直接下达任务"的交互模型不同;自己实现更简单可控 | arq(Redis-based asyncio 队列,MIT) |
 | **预算/步数/超时护栏** | SDK 提供 `max_iterations` 等参数,但没有跨 Conversation、跨租户的**预算**(token/美元)账本和熔断 | 控制面维护预算账本,每步回调检查,超限则发送 stop 信号给 Conversation |
 | **凭证不进沙箱的策略网关** | DockerWorkspace 默认会把环境变量/挂载传给容器;直接传凭证违反红线 | 控制面持有凭证,工具执行时若需要外部凭证(如 GitHub token),由策略网关代理请求并返回结果,不把明文凭证写入容器环境或文件系统 |

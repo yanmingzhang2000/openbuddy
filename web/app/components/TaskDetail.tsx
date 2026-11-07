@@ -51,7 +51,12 @@ export default function TaskDetail({ token, taskId, onChanged }: Props) {
         const history = await getTaskEvents(token, taskId);
         if (!cancelled) {
           setEvents(
-            history.map((e) => ({ type: "event", event_type: e.event_type, sequence: e.sequence, payload: e.payload }))
+            history.map((e) => ({
+              type: "event",
+              event_type: e.event_type,
+              sequence: e.sequence,
+              payload: e.payload,
+            }))
           );
         }
       }
@@ -73,14 +78,15 @@ export default function TaskDetail({ token, taskId, onChanged }: Props) {
     setTask(await getTask(token, taskId));
   }
 
-  if (!task) return <p>加载中...</p>;
+  if (!task) return <p className="task-loading">加载中...</p>;
 
   return (
-    <div>
-      <h3>
-        {task.title} <span className={`badge ${task.status}`}>{task.status}</span>
+    <div className="task-detail">
+      <h3 className="task-detail-title">
+        <span>{task.title}</span>
+        <span className={`badge ${task.status}`}>{task.status}</span>
       </h3>
-      <p style={{ color: "var(--muted)", fontSize: 13 }}>{task.instruction}</p>
+      <p className="task-instruction">{task.instruction}</p>
 
       <div className="cost-board panel">
         <div className="cost-item">
@@ -98,26 +104,28 @@ export default function TaskDetail({ token, taskId, onChanged }: Props) {
       </div>
 
       {task.status === "awaiting_approval" && (
-        <div className="panel" style={{ borderColor: "var(--warn)" }}>
-          <p>此任务包含高风险操作,需要人工审核后才能继续。</p>
-          <button onClick={() => handleApproval("approved")} style={{ marginRight: 8 }}>
-            批准
-          </button>
-          <button className="danger" onClick={() => handleApproval("rejected")}>
-            拒绝
-          </button>
+        <div className="panel task-approval">
+          <p>此任务包含高风险操作，需要人工审核后才能继续。</p>
+          <div className="task-approval-actions">
+            <button type="button" onClick={() => handleApproval("approved")}>
+              批准
+            </button>
+            <button type="button" className="danger" onClick={() => handleApproval("rejected")}>
+              拒绝
+            </button>
+          </div>
         </div>
       )}
 
       {task.error_message && (
-        <div className="panel" style={{ borderColor: "var(--danger)" }}>
+        <div className="panel task-error" role="alert">
           {task.error_message}
         </div>
       )}
 
       <h4>动作流 / 回放</h4>
-      <div className="panel" style={{ maxHeight: 400, overflowY: "auto" }}>
-        {events.length === 0 && <p style={{ color: "var(--muted)" }}>暂无事件</p>}
+      <div className="panel task-event-log">
+        {events.length === 0 && <p className="task-event-empty">暂无事件</p>}
         {events.map((e, idx) => (
           <div key={idx} className="event-line">
             [{e.sequence ?? idx}] {e.event_type}: {JSON.stringify(e.payload)}
