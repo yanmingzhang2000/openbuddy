@@ -35,12 +35,37 @@ ollama serve
 
 ### 启动
 
+**一键启动（推荐）:**
+
+Windows PowerShell:
+```powershell
+.\start.ps1
+```
+
+Linux/Mac:
+```bash
+chmod +x start.sh
+./start.sh
+```
+
+**手动启动:**
+
 ```powershell
 Copy-Item .env.example .env
 docker compose up --build
 ```
 
 等待所有服务健康检查通过后,打开 http://localhost:3000。
+
+**常用命令:**
+
+```powershell
+.\start.ps1          # 启动服务
+.\start.ps1 stop     # 停止服务
+.\start.ps1 restart  # 重启服务
+.\start.ps1 logs     # 查看日志
+.\start.ps1 clean    # 清理所有数据(危险!)
+```
 
 服务组成:
 
