@@ -1,321 +1,246 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
-import { login, signup, listTasks, createTask, Task } from "./lib/api";
+import { useEffect, useState, useRef, useCallback } from "react";
+import {
+  login,
+  signup,
+  listTasks,
+  createTask,
+  getTask,
+  getTaskEvents,
+  openTaskEventsSocket,
+  submitApproval,
+  Task,
+  TaskEvent,
+} from "./lib/api";
 import { getAuthToken, setAuthToken, removeAuthToken } from "./lib/auth";
-import TaskDetail from "./components/TaskDetail";
-import BrandLogo from "./components/BrandLogo";
-
-const INTENT_STEPS = [
-  { title: "Clarify", description: "理清真正需要解决的问题" },
-  { title: "Align", description: "确认目标、边界与交付标准" },
-  { title: "Act", description: "将清晰意图转化为实际行动" },
-] as const;
+import { isRunningStatus } from "./lib/status-helpers";
+import AuthView from "./components/AuthView";
+import SessionSidebar from "./components/SessionSidebar";
+import ConversationWorkspace from "./components/ConversationWorkspace";
 
 export default function HomePage() {
   const [token, setToken] = useState<string | null>(null);
-  const [mode, setMode] = useState<"login" | "signup">("signup");
-  const [tenantName, setTenantName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
-
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [newTitle, setNewTitle] = useState("");
-  const [newInstruction, setNewInstruction] = useState("");
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
+  // 初始化 token
   useEffect(() => {
     const saved = getAuthToken();
     if (saved) setToken(saved);
   }, []);
 
+  // 刷新任务列表
+  const refreshTasks = useCallback(async () => {
+    if (!token) return;
+    try {
+      const taskList = await listTasks(token);
+      setTasks(taskList);
+    } catch (e) {
+      console.error("Failed to refresh tasks:", e);
+    }
+  }, [token]);
+
+  // 定期刷新任务列表
   useEffect(() => {
     if (!token) return;
     refreshTasks();
-    const interval = setInterval(refreshTasks, 3000);
+    const interval = setInterval(refreshTasks, 5000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, refreshTasks]);
 
-  async function refreshTasks() {
-    if (!token) return;
-    try {
-      setTasks(await listTasks(token));
-    } catch (e) {
-      console.error(e);
+  // 加载选中的任务详情和事件
+  useEffect(() => {
+    if (!token || !selectedTaskId) {
+      setSelectedTask(null);
+      setEvents([]);
+      return;
     }
+
+    let cancelled = false;
+
+    async function loadTask() {
+      try {
+        const task = await getTask(token, selectedTaskId);
+        if (cancelled) return;
+        setSelectedTask(task);
+
+        // 运行中的任务使用 WebSocket，已完成的任务拉取历史事件
+        const isLive = isRunningStatus(task.status);
+        if (isLive) {
+          const ws = openTaskEventsSocket(token, selectedTaskId, (evt) => {
+            if (evt.type === "event") {
+              setEvents((prev) => [...prev, evt]);
+            } else if (evt.type === "task_finished") {
+              refreshTasks();
+              getTask(token, selectedTaskId).then((updatedTask) => {
+                if (!cancelled) setSelectedTask(updatedTask);
+              });
+            }
+          });
+          wsRef.current = ws;
+        } else {
+          const history = await getTaskEvents(token, selectedTaskId);
+          if (!cancelled) {
+            setEvents(
+              history.map((e) => ({
+                type: "event",
+                event_type: e.event_type,
+                sequence: e.sequence,
+                payload: e.payload,
+              }))
+            );
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load task:", e);
+      }
+    }
+
+    setEvents([]);
+    loadTask();
+
+    return () => {
+      cancelled = true;
+      wsRef.current?.close();
+    };
+  }, [token, selectedTaskId, refreshTasks]);
+
+  // 认证成功
+  function handleAuth(newToken: string) {
+    setAuthToken(newToken);
+    setToken(newToken);
   }
 
-  async function handleAuth(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (authLoading) return;
-
-    setAuthError(null);
-    setAuthLoading(true);
-    try {
-      const res =
-        mode === "signup"
-          ? await signup(tenantName, email, password)
-          : await login(email, password);
-      setAuthToken(res.access_token);
-      setToken(res.access_token);
-    } catch (e) {
-      setAuthError(String(e));
-    } finally {
-      setAuthLoading(false);
-    }
-  }
-
+  // 登出
   function handleLogout() {
     removeAuthToken();
     setToken(null);
     setTasks([]);
     setSelectedTaskId(null);
+    setSelectedTask(null);
+    setEvents([]);
   }
 
-  async function handleCreateTask() {
-    if (!token || !newTitle || !newInstruction) return;
-    await createTask(token, newTitle, newInstruction);
-    setNewTitle("");
-    setNewInstruction("");
-    refreshTasks();
+  // 创建任务
+  async function handleCreateTask(instruction: string) {
+    if (!token || !instruction.trim() || isCreatingTask) return;
+
+    setIsCreatingTask(true);
+    setCreateError(null);
+
+    try {
+      // 自动生成标题
+      const title = generateTaskTitle(instruction);
+      const newTask = await createTask(token, title, instruction);
+      
+      // 刷新任务列表
+      await refreshTasks();
+      
+      // 选中新任务
+      setSelectedTaskId(newTask.id);
+    } catch (e) {
+      setCreateError(String(e));
+    } finally {
+      setIsCreatingTask(false);
+    }
   }
 
+  // 提交审批
+  async function handleSubmitApproval(taskId: string, decision: "approved" | "rejected") {
+    if (!token) return;
+    try {
+      await submitApproval(token, taskId, decision);
+      await refreshTasks();
+      const updatedTask = await getTask(token, taskId);
+      setSelectedTask(updatedTask);
+    } catch (e) {
+      console.error("Failed to submit approval:", e);
+    }
+  }
+
+  // 新建任务（清空选中）
+  function handleNewTask() {
+    setSelectedTaskId(null);
+    setSelectedTask(null);
+    setEvents([]);
+    setIsMobileSidebarOpen(false);
+  }
+
+  // 未认证：显示认证页面
   if (!token) {
-    return (
-      <div className="auth-layout">
-        <aside className="auth-brand-side">
-          <div className="auth-brand-content">
-            <BrandLogo size="large" showTagline />
-            <p className="auth-brand-intro">
-              一个会在行动前帮助你理清目标、约束与预期的 AI Agent 工作台。
-            </p>
-
-            <div className="auth-intent-list">
-              {INTENT_STEPS.map((step) => (
-                <div key={step.title} className="auth-intent">
-                  <div className="auth-intent__title">{step.title}</div>
-                  <div className="auth-intent__description">{step.description}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="auth-brand-footer">
-              Powered by{" "}
-              <a
-                href="https://github.com/OpenHands/OpenHands"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                OpenHands
-              </a>
-            </div>
-          </div>
-        </aside>
-
-        <main className="auth-form-side">
-          <div className="auth-mobile-logo">
-            <BrandLogo size="medium" />
-          </div>
-
-          <section className="auth-card" aria-labelledby="auth-title">
-            <h1 id="auth-title" className="auth-title">
-              {mode === "signup" ? "创建工作空间" : "进入 FrameMind"}
-            </h1>
-            <p className="auth-subtitle">
-              {mode === "signup" ? "开始新的 AI Agent 工作空间" : "继续你的 Agent 任务"}
-            </p>
-
-            <div className="auth-mode-toggle" role="group" aria-label="认证方式">
-              <button
-                type="button"
-                className={mode === "signup" ? "auth-mode-button is-active" : "auth-mode-button"}
-                aria-pressed={mode === "signup"}
-                onClick={() => setMode("signup")}
-                disabled={authLoading}
-              >
-                注册
-              </button>
-              <button
-                type="button"
-                className={mode === "login" ? "auth-mode-button is-active" : "auth-mode-button"}
-                aria-pressed={mode === "login"}
-                onClick={() => setMode("login")}
-                disabled={authLoading}
-              >
-                登录
-              </button>
-            </div>
-
-            <form className="auth-form" onSubmit={handleAuth}>
-              {mode === "signup" && (
-                <div className="auth-field">
-                  <label htmlFor="tenant-name">工作空间名称</label>
-                  <input
-                    id="tenant-name"
-                    name="tenant_name"
-                    type="text"
-                    value={tenantName}
-                    onChange={(e) => setTenantName(e.target.value)}
-                    autoComplete="organization"
-                    required
-                  />
-                </div>
-              )}
-
-              <div className="auth-field">
-                <label htmlFor="email">邮箱地址</label>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="email"
-                  required
-                />
-              </div>
-
-              <div className="auth-field">
-                <label htmlFor="password">密码{mode === "signup" ? "（至少 8 位）" : ""}</label>
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                  minLength={mode === "signup" ? 8 : undefined}
-                  disabled={authLoading}
-                  required
-                />
-              </div>
-
-              <button
-                className="auth-submit"
-                type="submit"
-                disabled={authLoading || !email || !password || (mode === "signup" && !tenantName)}
-              >
-                {authLoading
-                  ? mode === "signup"
-                    ? "正在创建工作空间..."
-                    : "正在登录..."
-                  : mode === "signup"
-                    ? "创建工作空间"
-                    : "登录"}
-              </button>
-            </form>
-
-            {authError && (
-              <div className="auth-error" role="alert">
-                {authError}
-              </div>
-            )}
-          </section>
-        </main>
-      </div>
-    );
+    return <AuthView onAuth={handleAuth} />;
   }
 
+  // 已认证：显示工作台
   return (
     <div className="app-layout">
-      <header className="app-header">
-        <div className="workspace-brand">
-          <BrandLogo variant="compact" size="small" />
-          <h1 className="workspace-title">任务工作台</h1>
-        </div>
-        <button className="secondary" type="button" onClick={handleLogout}>
-          退出登录
-        </button>
-      </header>
+      {/* 移动端侧边栏遮罩 */}
+      <div
+        className={`mobile-sidebar-overlay${isMobileSidebarOpen ? " is-open" : ""}`}
+        onClick={() => setIsMobileSidebarOpen(false)}
+        aria-hidden="true"
+      />
 
-      <main className="app-main">
-        <section className="task-composer" aria-labelledby="task-composer-title">
-          <h2 id="task-composer-title">描述你想完成的事情</h2>
-          <p className="task-composer-help">
-            为了让 Agent 更准确地行动，请尽量说明目标、背景、约束和预期结果。
-          </p>
+      {/* 移动端侧边栏 */}
+      <div
+        className={`mobile-sidebar${isMobileSidebarOpen ? " is-open" : ""}`}
+        aria-label="会话列表"
+      >
+        <SessionSidebar
+          tasks={tasks}
+          selectedTaskId={selectedTaskId}
+          onSelectTask={(id) => {
+            setSelectedTaskId(id);
+            setIsMobileSidebarOpen(false);
+          }}
+          onNewTask={handleNewTask}
+        />
+      </div>
 
-          <input
-            aria-label="任务标题"
-            placeholder="任务标题（例如：整理部署文档）"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-          />
+      {/* 桌面端侧边栏 */}
+      <SessionSidebar
+        tasks={tasks}
+        selectedTaskId={selectedTaskId}
+        onSelectTask={setSelectedTaskId}
+        onNewTask={handleNewTask}
+      />
 
-          <textarea
-            aria-label="任务指令"
-            placeholder={`例如：
-
-目标：整理当前项目的部署文档
-背景：项目使用 Docker Compose 和本地模型
-约束：不要修改现有数据库数据
-预期结果：生成一份可直接执行的部署步骤`}
-            rows={6}
-            value={newInstruction}
-            onChange={(e) => setNewInstruction(e.target.value)}
-          />
-
-          <button
-            type="button"
-            className="task-submit"
-            onClick={handleCreateTask}
-            disabled={!newTitle || !newInstruction}
-          >
-            交给 FrameMind
-          </button>
-        </section>
-
-        <div className="task-workspace">
-          <section className="task-list-pane" aria-labelledby="task-list-title">
-            <h2 className="task-list-header" id="task-list-title">
-              任务列表
-            </h2>
-            {tasks.length === 0 && (
-              <div className="empty-state">
-                <div className="empty-state-icon" aria-hidden="true">
-                  📋
-                </div>
-                <p>暂无任务</p>
-                <p className="empty-state-help">在上方提交你的第一个任务</p>
-              </div>
-            )}
-            {tasks.map((t) => {
-              const selected = selectedTaskId === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  className={`task-row${selected ? " selected" : ""}`}
-                  aria-pressed={selected}
-                  onClick={() => setSelectedTaskId(t.id)}
-                >
-                  <span className="task-row__title">{t.title}</span>
-                  <span className={`badge ${t.status}`}>{t.status}</span>
-                </button>
-              );
-            })}
-          </section>
-
-          <section className="task-detail-pane" aria-label="任务详情">
-            <div className="panel task-detail-panel">
-              {selectedTaskId ? (
-                <TaskDetail token={token} taskId={selectedTaskId} onChanged={refreshTasks} />
-              ) : (
-                <div className="empty-state">
-                  <div className="empty-state-icon" aria-hidden="true">
-                    🔍
-                  </div>
-                  <p>选择左侧任务查看详情</p>
-                  <p className="empty-state-help">实时动作流与历史回放</p>
-                </div>
-              )}
-            </div>
-          </section>
-        </div>
-      </main>
+      {/* 主工作区 */}
+      <ConversationWorkspace
+        token={token}
+        selectedTask={selectedTask}
+        events={events}
+        onOpenExecutionPanel={() => {}}
+        onCreateTask={handleCreateTask}
+        onSubmitApproval={handleSubmitApproval}
+        isCreatingTask={isCreatingTask}
+        createError={createError}
+      />
     </div>
   );
+}
+
+/**
+ * 自动生成任务标题
+ * 1. 取第一行非空文本
+ * 2. 最长 40 个字符
+ * 3. 去掉多余空白
+ * 4. 如果为空，使用"未命名任务"
+ */
+function generateTaskTitle(instruction: string): string {
+  const lines = instruction.split("\n");
+  const firstLine = lines.find((line) => line.trim().length > 0);
+  if (!firstLine) return "未命名任务";
+
+  const cleaned = firstLine.trim().replace(/\s+/g, " ");
+  if (cleaned.length <= 40) return cleaned;
+
+  return cleaned.slice(0, 37) + "...";
 }
